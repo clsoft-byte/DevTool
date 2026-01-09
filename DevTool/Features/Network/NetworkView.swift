@@ -6,35 +6,23 @@
 //
 
 import SwiftUI
-import Combine
-struct NetworkView: View {
 
+struct NetworkView: View {
     @StateObject private var viewModel = NetworkViewModel()
+    @State private var selectedStream: NetworkStream = .live
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Tráfico de Red (Live)")
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Tráfico de Red")
                 .font(.title2)
                 .bold()
 
-            List(viewModel.events) { event in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(event.type.capitalized)
-                        .font(.headline)
-                        .foregroundColor(event.type == "request" ? .blue : .green)
-
-                    if let req = event.request {
-                        Text("\(req.method) \(req.url)")
-                            .font(.subheadline)
-                    }
-
-                    if let resp = event.response {
-                        Text("\(resp.status) [\(resp.statusCode)]")
-                            .font(.subheadline)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
+            connectionSection
+            proxySection
+            filtersSection
+            sessionsSection
+            streamPicker
+            eventList
         }
         .padding()
         .onAppear {
@@ -42,6 +30,178 @@ struct NetworkView: View {
         }
         .onDisappear {
             viewModel.stop()
+        }
+    }
+
+    private var connectionSection: some View {
+        HStack {
+            TextField("Host", text: $viewModel.host)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 180)
+            TextField("Puerto", text: $viewModel.port)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 100)
+            Button("Conectar") {
+                viewModel.connectWebSocket()
+                Task {
+                    await viewModel.refreshStatus()
+                    await viewModel.refreshFilters()
+                }
+            }
+            Spacer()
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+            }
+        }
+    }
+
+    private var proxySection: some View {
+        HStack(spacing: 12) {
+            Text("Proxy:")
+                .font(.headline)
+            Text(viewModel.proxyEnabled ? "Habilitado" : "Deshabilitado")
+                .foregroundColor(viewModel.proxyEnabled ? .green : .secondary)
+            Button("Iniciar") {
+                Task { await viewModel.startProxy() }
+            }
+            .disabled(viewModel.proxyEnabled)
+            Button("Detener") {
+                Task { await viewModel.stopProxy() }
+            }
+            .disabled(!viewModel.proxyEnabled)
+            Button("Actualizar estado") {
+                Task { await viewModel.refreshStatus() }
+            }
+            Spacer()
+        }
+    }
+
+    private var filtersSection: some View {
+        DisclosureGroup("Filtros") {
+            VStack(alignment: .leading, spacing: 8) {
+                filterField(title: "Include hosts", binding: stringArrayBinding(\.includeHosts))
+                filterField(title: "Exclude hosts", binding: stringArrayBinding(\.excludeHosts))
+                filterField(title: "Include methods", binding: stringArrayBinding(\.includeMethods))
+                filterField(title: "Exclude methods", binding: stringArrayBinding(\.excludeMethods))
+                filterField(title: "Include status codes", binding: intArrayBinding(\.includeStatusCodes))
+                filterField(title: "Exclude status codes", binding: intArrayBinding(\.excludeStatusCodes))
+                filterField(title: "Include URL contains", binding: stringArrayBinding(\.includeUrlContains))
+                filterField(title: "Exclude URL contains", binding: stringArrayBinding(\.excludeUrlContains))
+
+                HStack {
+                    Button("Cargar filtros") {
+                        Task { await viewModel.refreshFilters() }
+                    }
+                    Button("Guardar filtros") {
+                        Task { await viewModel.saveFilters() }
+                    }
+                    Spacer()
+                }
+                .padding(.top, 6)
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private var sessionsSection: some View {
+        HStack {
+            Text("Sesiones persistidas: \(viewModel.sessions.count)")
+                .font(.headline)
+            Button("Cargar sesiones") {
+                Task { await viewModel.refreshSessions() }
+            }
+            Button("Borrar sesiones") {
+                Task { await viewModel.clearSessions() }
+            }
+            Spacer()
+        }
+    }
+
+    private var streamPicker: some View {
+        Picker("Fuente", selection: $selectedStream) {
+            ForEach(NetworkStream.allCases) { stream in
+                Text(stream.label).tag(stream)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var eventList: some View {
+        let events = selectedStream == .live ? viewModel.events : viewModel.sessions
+        return List(events) { event in
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(event.type.capitalized)
+                        .font(.headline)
+                        .foregroundColor(event.type == "request" ? .blue : .green)
+                    if let time = event.time {
+                        Text(time)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let req = event.request {
+                    Text("\(req.method) \(req.url)")
+                        .font(.subheadline)
+                }
+
+                if let resp = event.response {
+                    Text("\(resp.status) [\(resp.statusCode)]")
+                        .font(.subheadline)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func filterField(title: String, binding: Binding<String>) -> some View {
+        HStack {
+            Text(title)
+                .frame(width: 180, alignment: .leading)
+            TextField("Separado por comas", text: binding)
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    private func stringArrayBinding(_ keyPath: WritableKeyPath<NetworkTrafficService.NetworkFilters, [String]>) -> Binding<String> {
+        Binding(
+            get: { viewModel.filters[keyPath: keyPath].joined(separator: ", ") },
+            set: { viewModel.filters[keyPath: keyPath] = parseStringArray($0) }
+        )
+    }
+
+    private func intArrayBinding(_ keyPath: WritableKeyPath<NetworkTrafficService.NetworkFilters, [Int]>) -> Binding<String> {
+        Binding(
+            get: { viewModel.filters[keyPath: keyPath].map(String.init).joined(separator: ", ") },
+            set: { viewModel.filters[keyPath: keyPath] = parseIntArray($0) }
+        )
+    }
+
+    private func parseStringArray(_ value: String) -> [String] {
+        value.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func parseIntArray(_ value: String) -> [Int] {
+        parseStringArray(value).compactMap { Int($0) }
+    }
+}
+
+private enum NetworkStream: String, CaseIterable, Identifiable {
+    case live
+    case sessions
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .live:
+            return "Live"
+        case .sessions:
+            return "Sesiones"
         }
     }
 }

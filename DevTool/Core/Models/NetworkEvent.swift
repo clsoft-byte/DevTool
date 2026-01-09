@@ -8,13 +8,16 @@
 import Foundation
 
 struct NetworkEvent: Identifiable, Decodable {
-    let id: UUID
+    let id: String
+    let time: String?
     let type: String
     let srcIP: String?
     let request: RequestData?
     let response: ResponseData?
 
     enum CodingKeys: String, CodingKey {
+        case id
+        case time
         case type
         case srcIP = "src_ip"
         case request
@@ -24,7 +27,8 @@ struct NetworkEvent: Identifiable, Decodable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        self.id = UUID() // 👈 generado localmente (clave)
+        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        self.time = try container.decodeIfPresent(String.self, forKey: .time)
         self.type = try container.decode(String.self, forKey: .type)
         self.srcIP = try container.decodeIfPresent(String.self, forKey: .srcIP)
         self.request = try container.decodeIfPresent(RequestData.self, forKey: .request)
