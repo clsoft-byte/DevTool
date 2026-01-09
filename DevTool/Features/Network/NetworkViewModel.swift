@@ -44,51 +44,96 @@ final class NetworkViewModel: ObservableObject {
     }
 
     func refreshStatus() async {
-        await perform {
-            let status = try await service.fetchProxyStatus(host: host, port: portValue)
+        do {
+            let status = try await service.fetchProxyStatus(
+                host: host,
+                port: portValue
+            )
             proxyEnabled = status.enabled
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
+
 
     func startProxy() async {
-        await perform {
-            let status = try await service.startProxy(host: host, port: portValue)
+        do {
+            let status = try await service.startProxy(
+                host: host,
+                port: portValue
+            )
             proxyEnabled = status.enabled
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
+
 
     func stopProxy() async {
-        await perform {
-            let status = try await service.stopProxy(host: host, port: portValue)
+        do {
+            let status = try await service.stopProxy(
+                host: host,
+                port: portValue
+            )
             proxyEnabled = status.enabled
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
+
 
     func refreshFilters() async {
-        await perform {
-            let filters = try await service.fetchFilters(host: host, port: portValue)
-            self.filters = filters
+        do {
+            filters = try await service.fetchFilters(
+                host: host,
+                port: portValue
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
+
     func saveFilters() async {
-        await perform {
-            let filters = try await service.updateFilters(filters, host: host, port: portValue)
-            self.filters = filters
+        do {
+            filters = try await service.updateFilters(
+                filters,
+                host: host,
+                port: portValue
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
     func refreshSessions() async {
-        await perform {
-            let sessions = try await service.fetchSessions(host: host, port: portValue)
-            self.sessions = sessions
+        do {
+            sessions = try await service.fetchSessions(
+                host: host,
+                port: portValue
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
+
     func clearSessions() async {
-        await perform {
-            try await service.clearSessions(host: host, port: portValue)
-            self.sessions = []
+        do {
+            try await service.clearSessions(
+                host: host,
+                port: portValue
+            )
+            sessions = []
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
