@@ -92,6 +92,10 @@ final class NetworkViewModel: ObservableObject {
         }
     }
 
+    func installCertificate() async throws {
+        try await CertificateInstaller.installCertificate(host: host, port: portValue)
+    }
+
     private var portValue: Int {
         Int(port) ?? 9999
     }

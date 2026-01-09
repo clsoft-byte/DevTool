@@ -10,6 +10,11 @@ import SwiftUI
 struct NetworkView: View {
     @StateObject private var viewModel = NetworkViewModel()
     @State private var selectedStream: NetworkStream = .live
+    @AppStorage("networkOnboardingSeen") private var networkOnboardingSeen = false
+    @State private var showOnboarding = false
+    @State private var onboardingStep: NetworkOnboardingStep = .computerCertificate
+    @State private var onboardingError: String?
+    @State private var isInstallingCertificate = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -27,9 +32,41 @@ struct NetworkView: View {
         .padding()
         .onAppear {
             viewModel.start()
+            if !networkOnboardingSeen {
+                onboardingStep = .computerCertificate
+                showOnboarding = true
+            }
         }
         .onDisappear {
             viewModel.stop()
+        }
+        .sheet(isPresented: $showOnboarding) {
+            NetworkOnboardingModal(
+                step: $onboardingStep,
+                isInstallingCertificate: isInstallingCertificate,
+                errorMessage: onboardingError,
+                onConfirm: {
+                    networkOnboardingSeen = true
+                    showOnboarding = false
+                },
+                onAcceptCertificate: {
+                    onboardingError = nil
+                    isInstallingCertificate = true
+                    Task { @MainActor in
+                        do {
+                            try await viewModel.installCertificate()
+                            onboardingStep = .mobileSetup
+                        } catch {
+                            onboardingError = error.localizedDescription
+                        }
+                        isInstallingCertificate = false
+                    }
+                },
+                onCancel: {
+                    showOnboarding = false
+                }
+            )
+            .interactiveDismissDisabled()
         }
     }
 
@@ -202,6 +239,85 @@ private enum NetworkStream: String, CaseIterable, Identifiable {
             return "Live"
         case .sessions:
             return "Sesiones"
+        }
+    }
+}
+
+private enum NetworkOnboardingStep {
+    case computerCertificate
+    case mobileSetup
+}
+
+private struct NetworkOnboardingModal: View {
+    @Binding var step: NetworkOnboardingStep
+    let isInstallingCertificate: Bool
+    let errorMessage: String?
+    let onConfirm: () -> Void
+    let onAcceptCertificate: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title)
+                .font(.title2)
+                .bold()
+
+            Text(description)
+                .font(.body)
+
+            if step == .computerCertificate {
+                Text("Para continuar necesitas instalar el certificado en este ordenador. Si no lo instalas, no podrás ver el tráfico de simuladores de iOS, emuladores de Android o dispositivos físicos, porque el tráfico pasa por la computadora.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundColor(.red)
+            }
+
+            Spacer()
+
+            HStack {
+                if step == .computerCertificate {
+                    Button("Cancelar") {
+                        onCancel()
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button(isInstallingCertificate ? "Instalando..." : "Aceptar") {
+                        onAcceptCertificate()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(isInstallingCertificate)
+                } else {
+                    Button("Confirmar") {
+                        onConfirm()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding()
+        .frame(minWidth: 420, minHeight: 240)
+    }
+
+    private var title: String {
+        switch step {
+        case .computerCertificate:
+            return "Instala el certificado"
+        case .mobileSetup:
+            return "Instala en iOS o Android"
+        }
+    }
+
+    private var description: String {
+        switch step {
+        case .computerCertificate:
+            return "El certificado permite inspeccionar el tráfico de red de tus dispositivos."
+        case .mobileSetup:
+            return "Ahora instala el certificado en iOS o Android siguiendo las instrucciones correspondientes. Cuando termines, pulsa Confirmar."
         }
     }
 }
